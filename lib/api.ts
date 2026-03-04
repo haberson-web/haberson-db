@@ -35,7 +35,22 @@ function stripHtml(html: string) {
 }
 
 // Helper: Robust Image Extractor
-function extractImage(item: any, category: string): string {
+type RSSItem = {
+  title?: string;
+  link?: string;
+  content?: string;
+  contentSnippet?: string;
+  description?: string;
+  pubDate?: string;
+  creator?: string;
+  enclosure?: { url?: string };
+  image?: { url?: string };
+  "media:content"?: { url?: string };
+  "media:thumbnail"?: { url?: string };
+  "content:encoded"?: string;
+};
+
+function extractImage(item: RSSItem, category: string): string {
   // Try RSS standard fields
   if (item.enclosure?.url) return item.enclosure.url;
   if (item['media:content']?.url) return item['media:content'].url;
@@ -72,7 +87,7 @@ export async function fetchNews(category: string = "general", pageSize: number =
     const feed = await parser.parseURL(feedUrl);
     
     // Transform RSS items to our Article interface
-    const articles: Article[] = feed.items.slice(0, pageSize).map((item: any) => {
+    const articles: Article[] = feed.items.slice(0, pageSize).map((item: RSSItem) => {
       const title = item.title || "Başlıksız Haber";
       const imageUrl = extractImage(item, category);
       const description = item.contentSnippet || stripHtml(item.description || "");
@@ -103,7 +118,20 @@ export async function fetchNews(category: string = "general", pageSize: number =
 
   } catch (error) {
     console.error(`RSS Fetch Error (${category}):`, error);
-    return []; // Return empty array so UI can handle it gracefully (or show skeleton)
+    // In case of error, return high-quality mock data instead of empty array to prevent UI break
+    return [
+      {
+        source: { id: "fallback", name: "SonHaber" },
+        author: "Sistem",
+        title: "Haber akışı güncelleniyor...",
+        description: "Şu anda canlı veri akışında geçici bir kesinti yaşanıyor. Lütfen kısa bir süre sonra tekrar deneyiniz.",
+        url: "/",
+        urlToImage: FALLBACK_IMAGES[category] || FALLBACK_IMAGES.default,
+        publishedAt: new Date().toISOString(),
+        content: "Bağlantı sorunu nedeniyle içerik yüklenemedi.",
+        category: category
+      }
+    ];
   }
 }
 
@@ -112,12 +140,16 @@ export async function fetchNewsById(slug: string): Promise<Article | null> {
   // We'll search across all categories to find a matching title/slug.
   // This is inefficient but necessary without a real backend/DB.
   
-  const categories = Object.keys(RSS_FEEDS);
-  
-  for (const cat of categories) {
-    const articles = await fetchNews(cat, 20); // Check last 20 items per category
-    const found = articles.find(a => generateSlug(a.title) === slug || a.title === decodeURIComponent(slug));
-    if (found) return found;
+  try {
+    const categories = Object.keys(RSS_FEEDS);
+    
+    for (const cat of categories) {
+      const articles = await fetchNews(cat, 20); // Check last 20 items per category
+      const found = articles.find(a => generateSlug(a.title) === slug || a.title === decodeURIComponent(slug));
+      if (found) return found;
+    }
+  } catch (error) {
+    console.error("FetchById Error:", error);
   }
   
   return null;
