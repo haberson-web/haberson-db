@@ -1,14 +1,14 @@
-import { Article, NewsResponse } from "@/types/news";
+import { Article } from "@/types/news";
 import Parser from "rss-parser";
 
-// Initialize RSS Parser
+// 1. Initialize RSS Parser with custom fields to catch images
 const parser = new Parser({
   customFields: {
-    item: ['media:content', 'media:thumbnail', 'enclosure', 'image'],
+    item: ['media:content', 'media:thumbnail', 'enclosure', 'image', 'content:encoded'],
   }
 });
 
-// RSS Feeds for Turkish News (Reliable Sources)
+// 2. Define Reliable RSS Sources (Turkish)
 const RSS_FEEDS: Record<string, string> = {
   general: "https://www.trthaber.com/xml/sondakika.xml",
   business: "https://www.trthaber.com/xml/ekonomi.xml",
@@ -19,99 +19,106 @@ const RSS_FEEDS: Record<string, string> = {
   science: "https://www.trthaber.com/xml/bilim-teknoloji.xml"
 };
 
-// Fallback Mock Data Generator (Used only if RSS fails completely)
-const MOCK_IMAGES = [
-  "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1600", // Tech/News
-  "https://images.unsplash.com/photo-1495020689067-958852a7765e?q=80&w=1600", // Newspaper
-  "https://images.unsplash.com/photo-1526304640152-d4619684e484?q=80&w=1600", // Economy
-  "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?q=80&w=1600", // Sports
-];
+// 3. High-Quality Fallback Images by Category
+const FALLBACK_IMAGES: Record<string, string> = {
+  general: "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1600",
+  business: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1600",
+  sports: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?q=80&w=1600",
+  technology: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?q=80&w=1600",
+  world: "https://images.unsplash.com/photo-1529101091760-61df6be21879?q=80&w=1600",
+  default: "https://images.unsplash.com/photo-1495020689067-958852a7765e?q=80&w=1600"
+};
 
-function generateMockArticles(count: number, category: string = "General"): Article[] {
-  return Array.from({ length: count }).map((_, i) => ({
-    source: { id: "mock-news", name: "SonHaber Ajansı" },
-    author: "Editör Masası",
-    title: `Örnek Haber Başlığı ${i + 1} - ${category}`,
-    description: `Bu haber, ${category.toLowerCase()} kategorisindeki en son gelişmeleri ve analizleri içermektedir. Detaylar için haberi okumaya devam edin.`,
-    url: `/news/${Math.random().toString(36).substr(2, 9)}`,
-    urlToImage: MOCK_IMAGES[i % MOCK_IMAGES.length],
-    publishedAt: new Date(Date.now() - i * 3600000).toISOString(),
-    content: "Bu haberin detaylı içeriği şu anda hazırlanmaktadır.",
-    category: category
-  }));
-}
-
-// Helper to clean HTML tags from description
+// Helper: Strip HTML tags
 function stripHtml(html: string) {
-   return html.replace(/<[^>]*>?/gm, '');
+   return html.replace(/<[^>]*>?/gm, '').trim();
 }
 
-// Helper to extract image from RSS item
-function extractImage(item: any): string | null {
-  if (item.enclosure && item.enclosure.url) return item.enclosure.url;
-  if (item['media:content'] && item['media:content'].url) return item['media:content'].url;
-  if (item['media:thumbnail'] && item['media:thumbnail'].url) return item['media:thumbnail'].url;
-  if (item.image && item.image.url) return item.image.url;
+// Helper: Robust Image Extractor
+function extractImage(item: any, category: string): string {
+  // Try RSS standard fields
+  if (item.enclosure?.url) return item.enclosure.url;
+  if (item['media:content']?.url) return item['media:content'].url;
+  if (item['media:thumbnail']?.url) return item['media:thumbnail'].url;
+  if (item.image?.url) return item.image.url;
   
-  // Try to find img src in content or description
-  const content = item.content || item.description || "";
+  // Try regex in content
+  const content = item['content:encoded'] || item.content || item.description || "";
   const imgMatch = content.match(/<img[^>]+src="?([^"\s]+)"?\s*/);
   if (imgMatch) return imgMatch[1];
   
-  return null;
+  // Return category specific fallback
+  return FALLBACK_IMAGES[category] || FALLBACK_IMAGES.default;
+}
+
+// Helper: Generate ID from title (slugify)
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .trim();
 }
 
 export async function fetchNews(category: string = "general", pageSize: number = 10): Promise<Article[]> {
   try {
-    // 1. Try fetching from RSS Feed (Primary for Demo/Free usage)
     const feedUrl = RSS_FEEDS[category] || RSS_FEEDS.general;
     const feed = await parser.parseURL(feedUrl);
     
+    // Transform RSS items to our Article interface
     const articles: Article[] = feed.items.slice(0, pageSize).map((item: any) => {
-      const imageUrl = extractImage(item);
+      const title = item.title || "Başlıksız Haber";
+      const imageUrl = extractImage(item, category);
+      const description = item.contentSnippet || stripHtml(item.description || "");
+      
+      // Use URL as ID if possible, otherwise generate a slug
+      // We'll store the slug in the 'url' field for internal routing, 
+      // and the real link in 'source.id' or similar if needed. 
+      // But for this project, let's keep 'url' as the external link 
+      // and use a computed ID for internal routing.
       
       return {
         source: { 
           id: null, 
-          name: feed.title || "Haber Kaynağı" 
+          name: feed.title?.replace("TRT Haber - ", "") || "Haber Kaynağı" 
         },
-        author: item.creator || item.author || "Editör",
-        title: item.title || "Başlıksız Haber",
-        description: item.contentSnippet || stripHtml(item.description || item.content || ""),
-        url: item.link || "",
+        author: item.creator || "Editör Masası",
+        title: title,
+        description: description.substring(0, 150) + "...",
+        url: item.link || "", // External Link
         urlToImage: imageUrl,
         publishedAt: item.pubDate || new Date().toISOString(),
-        content: item.content || item.contentSnippet || "",
+        content: item['content:encoded'] || item.content || description,
         category: category
       };
     });
     
-    // Filter valid articles
-    const validArticles = articles.filter(a => a.title && a.url);
-    
-    if (validArticles.length > 0) {
-      return validArticles;
-    }
-    
-    throw new Error("No articles found in RSS");
+    return articles;
 
   } catch (error) {
-    console.error(`RSS Fetch Error for ${category}:`, error);
-    
-    // 2. Fallback to Mock Data
-    console.warn("Falling back to Mock Data");
-    return generateMockArticles(pageSize, category === "general" ? "Gündem" : category);
+    console.error(`RSS Fetch Error (${category}):`, error);
+    return []; // Return empty array so UI can handle it gracefully (or show skeleton)
   }
 }
 
-export async function fetchNewsById(id: string): Promise<Article | null> {
-  // Since we don't have a real DB, we simulate finding by ID
-  // In a real app, we would query our DB or CMS.
-  // For now, we return a high-quality mock detail page or try to find in recent cache if possible.
+export async function fetchNewsById(slug: string): Promise<Article | null> {
+  // Since we don't have a DB, we'll try to find this article in our known feeds.
+  // We'll search across all categories to find a matching title/slug.
+  // This is inefficient but necessary without a real backend/DB.
   
-  const mockArticle = generateMockArticles(1, "Detay")[0];
-  mockArticle.title = id; // Use the ID (which is the title in our URL structure) as the title
-  mockArticle.description = "Bu haberin detayları şu anda canlı yayında güncellenmektedir. Lütfen daha sonra tekrar kontrol ediniz.";
+  const categories = Object.keys(RSS_FEEDS);
   
-  return mockArticle;
+  for (const cat of categories) {
+    const articles = await fetchNews(cat, 20); // Check last 20 items per category
+    const found = articles.find(a => generateSlug(a.title) === slug || a.title === decodeURIComponent(slug));
+    if (found) return found;
+  }
+  
+  return null;
 }
