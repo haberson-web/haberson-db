@@ -1,4 +1,4 @@
-import { fetchNews } from "@/lib/api";
+import { fetchNews } from "@/lib/news";
 import NewsGrid from "@/components/NewsGrid";
 import Link from "next/link";
 

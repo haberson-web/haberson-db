@@ -3,7 +3,7 @@ import Image from "next/image";
 import { ArrowLeft, Share2, Clock, User, Tag } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
-import { fetchNewsById } from "@/lib/api";
+import { fetchNewsById } from "@/lib/news";
 
 interface PageProps {
   params: Promise<{ id: string }>;

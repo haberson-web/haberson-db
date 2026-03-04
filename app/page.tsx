@@ -1,10 +1,8 @@
-import { fetchNews } from "@/lib/api";
+import { fetchNews } from "@/lib/news";
 import Hero from "@/components/Hero";
 import NewsGrid from "@/components/NewsGrid";
-import { Article } from "@/types/news";
 
-// Ensure dynamic fetching for fresh news
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function Home() {
   // Parallel fetching for performance
